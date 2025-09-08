@@ -14,39 +14,47 @@
     body {
       background: #f8f9fa;
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      transition: background 0.3s, color 0.3s;
+    }
+    body.dark-mode {
+      background: #121212;
+      color: #f1f1f1;
     }
     .header-banner {
       background: linear-gradient(135deg, #031047, #205de0);
       border-radius: 0 0 20px 20px;
       box-shadow: 0 4px 15px rgba(0,0,0,0.2);
     }
-    .card-custom {
+    .card-custom, .summary-card, .chart-box {
       border-radius: 12px;
       box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+      background: white;
+      transition: background 0.3s, color 0.3s;
+    }
+    body.dark-mode .card-custom,
+    body.dark-mode .summary-card,
+    body.dark-mode .chart-box {
+      background: #1e1e1e;
+      color: #f1f1f1;
     }
     .summary-card {
-      background: white;
       border-left: 6px solid #007bff;
       transition: transform 0.2s ease-in-out;
     }
     .summary-card:hover {
       transform: translateY(-3px);
     }
-    .summary-card h5 {
-      font-weight: 600;
-    }
     .expense-table {
       max-height: 400px;
       overflow-y: auto;
     }
-    .chart-box {
-      background: white;
-      border-radius: 12px;
-      padding: 20px;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-    }
-    .table td {
-      vertical-align: middle;
+    .footer {
+      margin-top: 30px;
+      padding: 15px;
+      background: #031047;
+      color: white;
+      text-align: center;
+      border-radius: 12px 12px 0 0;
     }
     /* Category color badges */
     .badge-food { background: #28a745; }
@@ -62,6 +70,7 @@
   <div class="container-fluid py-5 mb-4 text-white text-center header-banner">
     <h1 class="fw-bold" style="font-size: 2.5rem;">💰 Daily Expense Tracker</h1>
     <p class="lead mb-0">Track your spending, investments & savings in one place</p>
+    <button id="toggle-dark" class="btn btn-light btn-sm mt-3">🌙 Toggle Dark Mode</button>
   </div>
 
   <div class="container-fluid">
@@ -97,6 +106,20 @@
           </form>
         </div>
 
+        <!-- Filter for Category -->
+        <div class="card card-custom p-3 mb-4">
+          <h5>🔍 Filter Graphs by Category</h5>
+          <select id="filter-category" class="form-select">
+            <option value="All">All Categories</option>
+            <option value="Food">Food</option>
+            <option value="Travel">Travel</option>
+            <option value="Rent">Rent</option>
+            <option value="Other">Other</option>
+            <option value="Investment-SIP">Investment (SIP)</option>
+            <option value="Investment-Stock">Investment (Stock)</option>
+          </select>
+        </div>
+
         <!-- Current Month Expenses -->
         <div class="card card-custom p-3 mb-4">
           <h4 class="text-center">📅 Current Month Expenses</h4>
@@ -118,13 +141,13 @@
         <!-- Charts -->
         <div class="row g-4">
           <div class="col-md-6">
-            <div class="chart-box">
+            <div class="chart-box" style="height:300px;">
               <h5 class="text-center">📈 Daily Spending Trend</h5>
               <canvas id="dailyChart"></canvas>
             </div>
           </div>
           <div class="col-md-6">
-            <div class="chart-box">
+            <div class="chart-box" style="height:300px;">
               <h5 class="text-center">📊 Category Distribution</h5>
               <canvas id="categoryChart"></canvas>
             </div>
@@ -137,8 +160,12 @@
       <div class="col-lg-4">
         <!-- Stats -->
         <div class="card summary-card p-3 mb-3">
-          <h5>Total Expense</h5>
+          <h5>Total Expense </h5>
           <p id="total" class="fs-4 fw-bold">₹0</p>
+        </div>
+        <div class="card summary-card p-3 mb-3">
+          <h5>Overall Expense</h5>
+          <p id="overall" class="fs-4 fw-bold">₹0</p>
         </div>
         <div class="card summary-card p-3 mb-3">
           <h5>Average Food Expense</h5>
@@ -168,6 +195,11 @@
     </div>
   </div>
 
+  <!-- Footer -->
+  <div class="footer">
+    Created by Saurabh Nimbal 🚀
+  </div>
+
   <!-- JS -->
   <script>
     let expenses = JSON.parse(localStorage.getItem("expenses")) || [];
@@ -175,60 +207,77 @@
     const form = document.getElementById("expense-form");
     const expenseTable = document.querySelector("#expense-table tbody");
     const totalEl = document.getElementById("total");
+    const overallEl = document.getElementById("overall");
     const foodAverageEl = document.getElementById("food-average");
     const rentExpenseEl = document.getElementById("rent-expense");
     const otherExpenseEl = document.getElementById("other-expense");
     const sipExpenseEl = document.getElementById("sip-expense");
     const stockExpenseEl = document.getElementById("stock-expense");
     const archiveEl = document.getElementById("archive");
+    const filterCategory = document.getElementById("filter-category");
 
     // Render Expenses
     function renderExpenses() {
       expenseTable.innerHTML = "";
       const currentMonth = new Date().toISOString().slice(0,7);
 
-      let total = 0, rent=0, other=0, sip=0, stock=0;
+      let monthTotal = 0, overallTotal = 0;
+      let rent=0, other=0, sip=0, stock=0;
       let dailyMap = {}, categoryTotals = {};
       let foodTotal = 0, foodCount = 0;
+
+      let selectedCategory = filterCategory.value;
 
       expenses.sort((a,b)=> new Date(b.date)-new Date(a.date));
 
       expenses.forEach((exp, idx) => {
+        overallTotal += exp.amount;
+
         if (exp.date.startsWith(currentMonth)) {
-          const row = document.createElement("tr");
-          const badgeClass =
-            exp.category === "Food" ? "badge-food" :
-            exp.category === "Travel" ? "badge-travel" :
-            exp.category === "Rent" ? "badge-rent" :
-            exp.category.includes("Investment") ? "badge-invest" :
-            "badge-other";
+          monthTotal += exp.amount;
 
-          row.innerHTML = `
-            <td>${exp.date}</td>
-            <td><span class="badge ${badgeClass}">${exp.category}</span></td>
-            <td class="fw-bold text-danger">₹${exp.amount}</td>
-            <td><button class="btn btn-sm btn-danger" onclick="removeExpense(${idx})">X</button></td>
-          `;
-          expenseTable.appendChild(row);
+          if (exp.category === "Rent") rent += exp.amount;
+          else if (exp.category === "Other") other += exp.amount;
+          else if (exp.category === "Investment-SIP") sip += exp.amount;
+          else if (exp.category === "Investment-Stock") stock += exp.amount;
+          else if (exp.category === "Food") {
+            foodTotal += exp.amount;
+            foodCount++;
+          }
+
+          // apply category filter
+          if (selectedCategory === "All" || exp.category === selectedCategory) {
+            const row = document.createElement("tr");
+            const badgeClass =
+              exp.category === "Food" ? "badge-food" :
+              exp.category === "Travel" ? "badge-travel" :
+              exp.category === "Rent" ? "badge-rent" :
+              exp.category.includes("Investment") ? "badge-invest" :
+              "badge-other";
+
+            row.innerHTML = `
+              <td>${exp.date}</td>
+              <td><span class="badge ${badgeClass}">${exp.category}</span></td>
+              <td class="fw-bold text-danger">₹${exp.amount}</td>
+              <td>
+                <button class="btn btn-sm btn-warning" onclick="editExpense(${idx})">✎</button>
+                <button class="btn btn-sm btn-danger" onclick="removeExpense(${idx})">X</button>
+              </td>
+            `;
+            expenseTable.appendChild(row);
+          }
+
+          // chart filter
+          if (selectedCategory === "All" || exp.category === selectedCategory) {
+            dailyMap[exp.date] = (dailyMap[exp.date]||0)+exp.amount;
+            categoryTotals[exp.category] = (categoryTotals[exp.category]||0)+exp.amount;
+          }
         }
-
-        total += exp.amount;
-        categoryTotals[exp.category] = (categoryTotals[exp.category]||0)+exp.amount;
-
-        if (exp.category === "Rent") rent += exp.amount;
-        else if (exp.category === "Other") other += exp.amount;
-        else if (exp.category === "Investment-SIP") sip += exp.amount;
-        else if (exp.category === "Investment-Stock") stock += exp.amount;
-        else if (exp.category === "Food") {
-          foodTotal += exp.amount;
-          foodCount++;
-        }
-
-        dailyMap[exp.date] = (dailyMap[exp.date]||0)+exp.amount;
       });
 
       // Stats
-      totalEl.textContent = "₹" + total;
+      totalEl.textContent = "₹" + monthTotal;
+      overallEl.textContent = "₹" + overallTotal;
       rentExpenseEl.textContent = "₹" + rent;
       otherExpenseEl.textContent = "₹" + other;
       sipExpenseEl.textContent = "₹" + sip;
@@ -260,11 +309,27 @@
           </button>
           <div class="collapse" id="c${m.replace('-','')}">
             <ul class="list-group mt-2">
-              ${grouped[m].map(e=>`<li class="list-group-item">${e.date} - ${e.category}: ₹${e.amount}</li>`).join('')}
+              ${grouped[m].map((e,idx)=>`
+                <li class="list-group-item d-flex justify-content-between">
+                  ${e.date} - ${e.category}: ₹${e.amount}
+                  <button class="btn btn-sm btn-warning" onclick="editExpense(${expenses.indexOf(e)})">✎</button>
+                </li>
+              `).join('')}
             </ul>
           </div>
         `;
         archiveEl.appendChild(div);
+      }
+    }
+
+    // Edit
+    function editExpense(idx){
+      let exp = expenses[idx];
+      let newAmount = prompt("Edit amount for " + exp.category + " on " + exp.date, exp.amount);
+      if(newAmount && !isNaN(newAmount)){
+        expenses[idx].amount = parseFloat(newAmount);
+        localStorage.setItem("expenses",JSON.stringify(expenses));
+        renderExpenses();
       }
     }
 
@@ -322,6 +387,14 @@
       localStorage.setItem("expenses",JSON.stringify(expenses));
       form.reset();
       renderExpenses();
+    });
+
+    // Filter
+    filterCategory.addEventListener("change", renderExpenses);
+
+    // Dark mode
+    document.getElementById("toggle-dark").addEventListener("click", ()=>{
+      document.body.classList.toggle("dark-mode");
     });
 
     renderExpenses();
